@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Real-Time Chat App</title>
+  <style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  }
+
+  body {
+    background: #f3f4f6;
+    padding: 20px;
+  }
+
+  h1 {
+    text-align: center;
+    color: #333;
+    margin-bottom: 20px;
+  }
+
+  #form {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 15px;
+  }
+
+  #form input,
+  #form button {
+    padding: 10px;
+    font-size: 1rem;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+  }
+
+  #form input {
+    flex: 1 1 200px;
+    max-width: 300px;
+  }
+
+  #form button {
+    background-color: #4caf50;
+    color: white;
+    border: none;
+    cursor: pointer;
+    transition: background 0.3s ease;
+  }
+
+  #form button:hover {
+    background-color: #45a049;
+  }
+
+  #messageArea {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 15px;
+    background: white;
+    border-radius: 10px;
+    border: 1px solid #ddd;
+    height: 400px;
+    overflow-y: auto;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+  }
+
+  #messageArea p {
+    margin: 5px 0;
+    padding: 8px 12px;
+    border-radius: 6px;
+    line-height: 1.4;
+  }
+
+  /* Style for group messages */
+  #messageArea p:nth-child(odd):not([style*="background-color"]) {
+    background-color: #e0e0e0;
+    color: #000;
+    align-self: flex-start;
+  }
+
+  /* Style for private message sender info */
+  #messageArea p[style*="background-color: #ff416c"] {
+    background-color: #ff416c !important;
+    color: white;
+    font-weight: bold;
+  }
+
+  /* Style for group message sender info */
+  #messageArea p[style*="background-color: grey"] {
+    background-color: #666 !important;
+    color: white;
+    font-weight: bold;
+  }
+
+  /* Read receipt */
+  #messageArea p[style*="color: #00ffcc"] {
+    font-style: italic;
+  }
+
+  /* Online/offline status */
+  #messageArea p[style*="color: #00ff00"],
+  #messageArea p[style*="color: #ff0000"] {
+    font-weight: 500;
+    text-align: right;
+    margin-top: 10px;
+  }
+
+  /* Scrollbar customization (optional) */
+  #messageArea::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  #messageArea::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+  }
+
+  #messageArea::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+</style>
+
+</head>
+<body>
+  <h1>Real-Time Chat App</h1>
+  <form id="form">
+    <input type="text" placeholder="Your Name" id="myname" required />
+    <input type="text" placeholder="Recipient (leave blank for group)" id="recipient" />
+    <input type="text" placeholder="Message" id="message" required />
+    <button type="submit">Send</button>
+  </form>
+  <div id="messageArea"></div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    let socket = io();
+    let form = document.getElementById("form");
+    let myname = document.getElementById("myname");
+    let recipient = document.getElementById("recipient");
+    let message = document.getElementById("message");
+    let messageArea = document.getElementById("messageArea");
+    let username = "";
+
+    socket.on("update online users", (users) => {
+      console.log("Online users:", users);
+    });
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!username) {
+        username = myname.value.trim();
+        if (!username) {
+          alert("Please enter your name.");
+          return;
+        }
+        socket.emit("set username", username);
+      }
+
+      const msg = message.value.trim();
+      if (msg === "") return;
+
+      const toUser = recipient.value.trim();
+      const encryptedMsg = btoa(msg); // Simple Base64 encoding
+
+      if (toUser === "") {
+        socket.emit("group message", { from: username, message: encryptedMsg });
+      } else {
+        socket.emit("private message", { from: username, to: toUser, message: encryptedMsg });
+      }
+
+      message.value = "";
+      recipient.value = "";
+    });
+
+    socket.on("group message", (data) => {
+      const { from, message } = data;
+      let pName = document.createElement("p");
+      pName.style.backgroundColor = "grey";
+      pName.style.width = "100%";
+      pName.style.textAlign = "center";
+      pName.style.color = "white";
+      pName.textContent = from + ":";
+      messageArea.appendChild(pName);
+
+      let pMsg = document.createElement("p");
+      pMsg.textContent = atob(message); // Decode message
+      messageArea.appendChild(pMsg);
+      messageArea.scrollTop = messageArea.scrollHeight;
+    });
+
+    socket.on("private message", (data) => {
+      const { from, to, message } = data;
+      let pName = document.createElement("p");
+      pName.style.backgroundColor = "#ff416c";
+      pName.style.width = "100%";
+      pName.style.textAlign = "center";
+      pName.style.color = "white";
+      pName.textContent = `[Private] ${from} → ${to}:`;
+      messageArea.appendChild(pName);
+
+      let pMsg = document.createElement("p");
+      pMsg.textContent = atob(message);
+      messageArea.appendChild(pMsg);
+      messageArea.scrollTop = messageArea.scrollHeight;
+
+      // Send read receipt to sender
+      socket.emit("read receipt", { from: to, to: from });
+    });
+
+    socket.on("user not found", (user) => {
+      alert(`User "${user}" not found or not connected.`);
+    });
+
+    socket.on("read receipt", ({ from, to }) => {
+      let pReceipt = document.createElement("p");
+      pReceipt.style.fontSize = "0.8rem";
+      pReceipt.style.color = "#00ffcc";
+      pReceipt.style.textAlign = "right";
+      pReceipt.textContent = `✓ Message read by ${to}`;
+      messageArea.appendChild(pReceipt);
+      messageArea.scrollTop = messageArea.scrollHeight;
+    });
+
+    socket.on("online status", ({ user, status }) => {
+      let pStatus = document.createElement("p");
+      pStatus.style.fontSize = "0.8rem";
+      pStatus.style.color = status === "online" ? "#00ff00" : "#ff0000";
+      pStatus.textContent = `${user} is ${status}`;
+      messageArea.appendChild(pStatus);
+    });
+  </script>
+</body>
+</html>
